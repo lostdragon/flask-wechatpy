@@ -12,9 +12,10 @@ from wechatpy.exceptions import (
     WeChatOAuthException,
 )
 
+from six.moves.urllib import parse
+
 
 class Wechat(object):
-
     def __init__(self, app=None):
 
         self._wechat_client = None
@@ -43,7 +44,7 @@ class Wechat(object):
             from wechatpy.enterprise import WeChatClient
 
         if config['WECHAT_SESSION_TYPE'] == 'redis':
-            from wechat.session.redisstorage import RedisStorage
+            from wechatpy.session.redisstorage import RedisStorage
             from redis import Redis
             if config.get('WECHAT_SESSION_REDIS_URL'):
                 redis = Redis.from_url(config['WECHAT_SESSION_REDIS_URL'])
@@ -96,7 +97,6 @@ class Wechat(object):
 
 
 def wechat_required(method):
-
     @functools.wraps(method)
     def wrapper(*args, **kwargs):
         if current_app.config['WECHAT_TYPE'] == 0:
@@ -136,7 +136,7 @@ def _wechat_required(method, *args, **kwargs):
     if current_app.config.get('WECHAT_AES_KEY'):
         crypto = WeChatCrypto(
             current_app.config['WECHAT_TOKEN'],
-            current_app['WECHAT_AES_KEY'],
+            current_app.config['WECHAT_AES_KEY'],
             current_app.config['WECHAT_APPID']
         )
         try:
@@ -182,7 +182,7 @@ def _enterprise_wechat_required(method, *args, **kwargs):
 
     crypto = WeChatCrypto(
         current_app.config['WECHAT_TOKEN'],
-        current_app['WECHAT_AES_KEY'],
+        current_app.config['WECHAT_AES_KEY'],
         current_app.config['WECHAT_APPID']
     )
     if request.method == 'GET':
@@ -260,7 +260,10 @@ def oauth(check_func=_check_user, set_user=_set_user, scope='snsapi_base', state
                 try:
                     res = wechat_oauth.fetch_access_token(request.args['code'])
                 except WeChatOAuthException:
-                    return abort(403)
+                    # 登录失败，跳转回去重新登录
+                    ps = parse.urlparse(redirect_uri)
+                    url = '{scheme}://{netloc}{path}'.format(scheme=ps.scheme, netloc=ps.netloc, path=ps.path)
+                    return redirect(url)
                 else:
                     if scope == 'snsapi_base':
                         set_user(res)
@@ -270,12 +273,13 @@ def oauth(check_func=_check_user, set_user=_set_user, scope='snsapi_base', state
             elif not user:
                 return redirect(wechat_oauth.authorize_url)
             return method(*args, **kwargs)
+
         return wrapper
+
     return decorater
 
 
 class WechatPay(object):
-
     def __init__(self, app=None):
 
         self._wechat_client = None
